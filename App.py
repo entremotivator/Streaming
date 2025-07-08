@@ -1,130 +1,68 @@
 import streamlit as st
-from obswebsocket import obsws, requests, exceptions
+import os
+from obswebsocket import obsws, requests
 import time
 
-# ----------- Constants -----------
-PLATFORMS = {
-    "YouTube": "",
-    "Facebook": "",
-    "Twitch": "",
-    "Twitter (X)": "",
-    "LinkedIn": ""
-}
+# Constants
+VIDEO_FOLDER = "uploaded_videos"
+os.makedirs(VIDEO_FOLDER, exist_ok=True)
 
-# ----------- Session State Init -----------
-if 'obs' not in st.session_state:
-    st.session_state.obs = None
-if 'connected' not in st.session_state:
-    st.session_state.connected = False
-if 'stream_status' not in st.session_state:
-    st.session_state.stream_status = {p: "🔴 Stopped" for p in PLATFORMS}
-if 'saved_rtmps' not in st.session_state:
-    st.session_state.saved_rtmps = {p: "" for p in PLATFORMS}
+st.set_page_config(page_title="📼 Video Broadcaster", layout="centered")
+st.title("📼 Live Stream a Prerecorded Video")
 
-# ----------- App Layout -----------
-st.set_page_config(page_title="OBS Multi-Streaming Studio", layout="centered")
-st.title("🎥 OBS Multi-Streaming Studio")
-st.markdown("Control streaming to multiple platforms from your OBS with just a few clicks.")
+# 1. Video Upload and Preview
+st.header("🎞️ Upload or Select a Video")
+video_file = st.file_uploader("Upload MP4 file", type=["mp4"])
 
-# ----------- Sidebar: OBS Settings -----------
-with st.sidebar:
-    st.header("🔌 OBS WebSocket Settings")
-    host = st.text_input("Host", "localhost")
-    port = st.number_input("Port", 4455)
-    password = st.text_input("Password", type="password")
-    
-    connect_button = st.button("Connect to OBS")
+if video_file:
+    video_path = os.path.join(VIDEO_FOLDER, video_file.name)
+    with open(video_path, "wb") as f:
+        f.write(video_file.read())
 
-    if connect_button:
-        try:
-            st.session_state.obs = obsws(host, port, password)
-            st.session_state.obs.connect()
-            st.session_state.connected = True
-            st.success("✅ Connected to OBS")
-        except exceptions.OBSSDKError as e:
-            st.session_state.connected = False
-            st.error(f"❌ Failed to connect: {e}")
-        except Exception as e:
-            st.session_state.connected = False
-            st.error(f"❌ Error: {e}")
+    st.video(video_path)
+    st.success("✅ Video ready for streaming via OBS")
 
-    if st.session_state.connected:
-        st.success("🟢 OBS Connection Active")
+# 2. OBS WebSocket Settings
+st.sidebar.header("🔌 OBS WebSocket Settings")
+obs_host = st.sidebar.text_input("OBS Host", "localhost")
+obs_port = st.sidebar.number_input("OBS Port", 4455)
+obs_password = st.sidebar.text_input("OBS Password", type="password")
+
+# 3. RTMP Inputs
+st.header("📡 RTMP Stream Destinations")
+platform_rtmp = st.text_input("RTMP URL (with stream key)", help="e.g., rtmp://a.rtmp.youtube.com/live2/yourkey")
+
+# 4. Stream Controls
+if st.button("🚀 Start Live Stream in OBS"):
+    if not video_file:
+        st.warning("Please upload a video first.")
     else:
-        st.warning("🔴 Not connected to OBS")
+        try:
+            ws = obsws(obs_host, obs_port, obs_password)
+            ws.connect()
+            st.success("✅ Connected to OBS")
 
-# ----------- Stream Target Input -----------
-st.subheader("🎯 Configure RTMP Endpoints")
+            # Add local video source to a scene
+            scene_name = "VideoScene"
+            source_name = "StreamVideo"
 
-with st.expander("📺 RTMP Stream Key Inputs"):
-    for platform in PLATFORMS:
-        value = st.text_input(
-            f"{platform} RTMP URL + Stream Key",
-            value=st.session_state.saved_rtmps.get(platform, ""),
-            key=f"rtmp_{platform}",
-            type="password",
-            help="Example: rtmp://a.rtmp.youtube.com/live2/your_stream_key"
-        )
-        st.session_state.saved_rtmps[platform] = value.strip()
+            # Create scene
+            ws.call(requests.CreateScene(scene_name))
+            ws.call(requests.SetCurrentProgramScene(scene_name))
 
-# ----------- Streaming Controls -----------
-st.subheader("🧪 Stream Control Panel")
+            # Add media source
+            ws.call(requests.CreateInput(
+                sceneName=scene_name,
+                inputName=source_name,
+                inputKind="ffmpeg_source",
+                inputSettings={
+                    "local_file": video_path,
+                    "looping": False,
+                    "is_local_file": True
+                }
+            ))
 
-col1, col2 = st.columns(2)
+            time.sleep(1)
 
-with col1:
-    if st.button("🚀 Start All Active Streams") and st.session_state.connected:
-        for platform, url in st.session_state.saved_rtmps.items():
-            if url.strip() == "":
-                continue
-
-            output_name = f"{platform}_Output"
-
-            try:
-                # Clean up any existing outputs
-                try:
-                    st.session_state.obs.call(requests.StopOutput(output_name))
-                    st.session_state.obs.call(requests.RemoveOutput(output_name))
-                except:
-                    pass
-
-                # Create and start output
-                st.session_state.obs.call(requests.CreateOutput(
-                    outputName=output_name,
-                    outputKind="rtmp_output",
-                    outputSettings={
-                        "server": url,
-                        "key": "",
-                        "use_auth": False
-                    }
-                ))
-
-                st.session_state.obs.call(requests.StartOutput(output_name))
-                st.session_state.stream_status[platform] = "🟢 Live"
-                st.success(f"{platform}: Streaming started ✅")
-
-            except Exception as e:
-                st.session_state.stream_status[platform] = "🔴 Failed"
-                st.error(f"{platform} Error: {e}")
-
-with col2:
-    if st.button("🛑 Stop All Streams") and st.session_state.connected:
-        for platform in PLATFORMS:
-            output_name = f"{platform}_Output"
-            try:
-                st.session_state.obs.call(requests.StopOutput(output_name))
-                st.session_state.obs.call(requests.RemoveOutput(output_name))
-                st.session_state.stream_status[platform] = "🔴 Stopped"
-                st.warning(f"{platform}: Stream stopped")
-            except Exception as e:
-                st.error(f"{platform}: Couldn't stop stream ({e})")
-
-# ----------- Stream Status Summary -----------
-st.subheader("📡 Stream Status")
-
-for platform in PLATFORMS:
-    st.markdown(f"**{platform}:** {st.session_state.stream_status[platform]}")
-
-# ----------- Info Footer -----------
-st.markdown("---")
-st.caption("🧠 Tip: OBS WebSocket must be enabled. Default port is 4455 with optional password.")
+            # Set up RTMP streaming output
+            ws.call(requests.SetStreamServiceSett
