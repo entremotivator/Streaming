@@ -3,19 +3,18 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 # Page configuration
 st.set_page_config(page_title="🎥 Live Webcam Preview", layout="centered")
-
 st.title("🎥 Live Webcam Preview in Streamlit")
 st.header("📷 Your Live Camera Feed")
 
-# Optional: Define a transformer if you want to process the video
+# Optional: Define a transformer if you want to process video frames
 class VideoTransformer(VideoTransformerBase):
     def transform(self, frame):
-        # You can modify the frame here (e.g., grayscale, filters, overlays)
+        # Return the original frame or modify it
         return frame
 
-# Stream the webcam feed
+# Correct usage: no 'video' parameter; use media_stream_constraints
 webrtc_streamer(
-    key="live",
-    video_transformer_factory=VideoTransformer,  # Optional processing
-    media_stream_constraints={"video": True, "audio": False},  # Explicit settings
+    key="example",
+    video_transformer_factory=VideoTransformer,  # Optional: omit if no processing
+    media_stream_constraints={"video": True, "audio": False},
 )
