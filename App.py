@@ -6,15 +6,9 @@ st.title("🎥 Live Webcam Preview in Streamlit")
 
 st.header("📷 Your Live Camera Feed")
 
+# The function must be called inside the script, not at the top level or inside __main__
 webrtc_streamer(
     key="example",
     video=True,
-    audio=False,  # Set to True if you want to capture audio as well
+    audio=False,
 )
-
-st.markdown("---")
-st.markdown("""
-**Note:**  
-This app shows a live webcam feed in your browser.  
-It does NOT broadcast or stream your video to YouTube, Twitch, or any other platform.
-""")
